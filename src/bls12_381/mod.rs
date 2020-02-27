@@ -15,7 +15,7 @@ pub use self::ec::{
     G1Affine, G1Compressed, G1Prepared, G1Uncompressed, G2Affine, G2Compressed, G2Prepared,
     G2Uncompressed, G1, G2,
 };
-pub use self::fq::{Fq, FqRepr};
+pub use self::fq::{Fq, FqRepr, G1_SUBGROUP_CHECK_BETA};
 pub use self::fq12::Fq12;
 pub use self::fq2::Fq2;
 pub use self::fq6::Fq6;

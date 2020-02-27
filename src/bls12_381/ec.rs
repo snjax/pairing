@@ -619,14 +619,18 @@ macro_rules! curve_impl {
     };
 }
 
+
+
+
 pub mod g1 {
-    use super::super::{Bls12, Fq, Fq12, FqRepr, Fr, FrRepr};
+    use super::super::{Bls12, Fq, Fq12, FqRepr, Fr, FrRepr, G1_SUBGROUP_CHECK_BETA};
     use super::g2::G2Affine;
     use crate::{Engine, PairingCurveAffine};
     use ff::{BitIterator, Field, PrimeField, PrimeFieldRepr, SqrtField};
     use group::{CurveAffine, CurveProjective, EncodedPoint, GroupDecodingError};
     use rand_core::RngCore;
     use std::fmt;
+    
 
     curve_impl!(
         "G1",
@@ -639,6 +643,32 @@ pub mod g1 {
         G1Compressed,
         G2Affine
     );
+
+
+    fn sigma(p: &G1) -> G1 {
+        let mut res = p.clone();
+        res.x.mul_assign(&G1_SUBGROUP_CHECK_BETA);
+        res
+    }
+
+    // (z^2 - 1)/3
+    const Z_SQR_MINUS_ONE_DIV_THREE:FrRepr = FrRepr([1431655765, 4137836090706223446, 0, 0]);
+
+    fn is_in_correct_subgroup_assuming_on_curve_ex(p: &G1Affine) -> bool {
+        let mut p = p.into_projective();
+        let mut sigma_p = sigma(&p);
+        let sigma2_p = sigma(&sigma_p);
+
+        let mut minus_sigma2_p = sigma2_p.clone();
+        minus_sigma2_p.negate();
+        p.negate();
+
+        sigma_p.double();
+        p.add_assign(&sigma_p);
+        p.add_assign(&minus_sigma2_p);
+        p.mul_assign(Z_SQR_MINUS_ONE_DIV_THREE);
+        p.eq(&sigma2_p)
+    }
 
     #[derive(Copy, Clone)]
     pub struct G1Uncompressed([u8; 96]);
@@ -675,7 +705,7 @@ pub mod g1 {
 
             if !affine.is_on_curve() {
                 Err(GroupDecodingError::NotOnCurve)
-            } else if !affine.is_in_correct_subgroup_assuming_on_curve() {
+            } else if !is_in_correct_subgroup_assuming_on_curve_ex(&affine) {
                 Err(GroupDecodingError::NotInSubgroup)
             } else {
                 Ok(affine)
@@ -785,12 +815,17 @@ pub mod g1 {
 
             // NB: Decompression guarantees that it is on the curve already.
 
-            if !affine.is_in_correct_subgroup_assuming_on_curve() {
+            if !is_in_correct_subgroup_assuming_on_curve_ex(&affine) {
                 Err(GroupDecodingError::NotInSubgroup)
             } else {
                 Ok(affine)
             }
         }
+
+
+
+
+
         fn into_affine_unchecked(&self) -> Result<G1Affine, GroupDecodingError> {
             // Create a copy of this representation.
             let mut copy = self.0;
@@ -1289,13 +1324,16 @@ pub mod g1 {
 }
 
 pub mod g2 {
-    use super::super::{Bls12, Fq, Fq12, Fq2, FqRepr, Fr, FrRepr};
+    use super::super::{Bls12, Fq, Fq12, Fq2, Fq6, FqRepr, Fr, FrRepr};
     use super::g1::G1Affine;
     use crate::{Engine, PairingCurveAffine};
     use ff::{BitIterator, Field, PrimeField, PrimeFieldRepr, SqrtField};
     use group::{CurveAffine, CurveProjective, EncodedPoint, GroupDecodingError};
     use rand_core::RngCore;
     use std::fmt;
+
+
+    use lazy_static::lazy_static;
 
     curve_impl!(
         "G2",
@@ -1308,6 +1346,63 @@ pub mod g2 {
         G2Compressed,
         G1Affine
     );
+
+    lazy_static! {
+        static ref  WSQ:Fq12 = Fq12{c0:Fq6{c0:Fq2::zero(), c1:Fq2::one(), c2:Fq2::zero()}, c1:Fq6::zero()};
+        static ref  WCU:Fq12 = Fq12{c0:Fq6::zero(), c1:Fq6{c0:Fq2::zero(), c1:Fq2::one(), c2:Fq2::zero()}};
+
+        static ref  WSQ_INV:Fq12 = WSQ.inverse().unwrap();
+        static ref  WCU_INV:Fq12 = WCU.inverse().unwrap();
+    }
+
+    pub fn psi(p: &G2, power:usize) -> G2 {
+        //untwist
+        let mut x = Fq12{
+            c0: Fq6 {
+                c0: p.x.clone(),
+                c1: Fq2::zero(),
+                c2: Fq2::zero(),
+            },
+            c1: Fq6::zero(),
+        };
+
+        x.mul_assign(&WSQ_INV);
+    
+        let mut y = Fq12{
+            c0: Fq6 {
+                c0: p.y.clone(),
+                c1: Fq2::zero(),
+                c2: Fq2::zero(),
+            },
+            c1: Fq6::zero(),
+        };
+
+        y.mul_assign(&WCU_INV);
+
+        x.frobenius_map(power);
+        y.frobenius_map(power);
+
+
+        x.mul_assign(&WSQ);
+        y.mul_assign(&WCU);
+
+        G2{x: x.c0.c0, y:y.c0.c0, z:p.z}
+    }
+
+
+    const MINUS_Z :FrRepr = FrRepr([15132376222941642752, 0, 0, 0]);
+    // [-z]\psi^3 P + \psi^2 p == p
+    fn is_in_correct_subgroup_assuming_on_curve_ex(p: &G2Affine) -> bool {
+        let p = p.into_projective();
+        let mut psi3_p = psi(&p, 3);
+        let psi2_p = psi(&p, 2);
+
+        psi3_p.mul_assign(MINUS_Z);
+        psi3_p.add_assign(&psi2_p);
+
+        psi3_p.eq(&p)
+    }
+
 
     #[derive(Copy, Clone)]
     pub struct G2Uncompressed([u8; 192]);
@@ -1344,7 +1439,7 @@ pub mod g2 {
 
             if !affine.is_on_curve() {
                 Err(GroupDecodingError::NotOnCurve)
-            } else if !affine.is_in_correct_subgroup_assuming_on_curve() {
+            } else if !is_in_correct_subgroup_assuming_on_curve_ex(&affine) {
                 Err(GroupDecodingError::NotInSubgroup)
             } else {
                 Ok(affine)
@@ -1470,7 +1565,7 @@ pub mod g2 {
 
             // NB: Decompression guarantees that it is on the curve already.
 
-            if !affine.is_in_correct_subgroup_assuming_on_curve() {
+            if !is_in_correct_subgroup_assuming_on_curve_ex(&affine) {
                 Err(GroupDecodingError::NotInSubgroup)
             } else {
                 Ok(affine)
