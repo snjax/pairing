@@ -1394,7 +1394,7 @@ pub mod g2 {
     // [-z]\psi^3 P + \psi^2 p == p
     
     // implemented approach described at https://eprint.iacr.org/2019/814.pdf
-    #[cfg(feature = "bls12_fastsubgroupcheck")]
+    #[cfg(feature = "bls12-fastsubgroupcheck")]
     fn is_in_correct_subgroup_assuming_on_curve_ex(p: &G2Affine) -> bool {
         let p = p.into_projective();
         let mut psi3_p = psi(&p, 3);
@@ -1406,7 +1406,7 @@ pub mod g2 {
         psi3_p.eq(&p)
     }
 
-    #[cfg(not(feature = "bls12_fastsubgroupcheck"))]
+    #[cfg(not(feature = "bls12-fastsubgroupcheck"))]
     fn is_in_correct_subgroup_assuming_on_curve_ex(p: &G2Affine) -> bool {
         p.mul(Fr::char()).is_zero()
     }
