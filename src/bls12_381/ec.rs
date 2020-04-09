@@ -1408,7 +1408,7 @@ pub mod g2 {
 
     #[cfg(not(feature = "bls12_fastsubgroupcheck"))]
     fn is_in_correct_subgroup_assuming_on_curve_ex(p: &G2Affine) -> bool {
-        p.mul(G2Affine::char()).is_zero()
+        p.mul(Fr::char()).is_zero()
     }
 
     #[derive(Copy, Clone)]
